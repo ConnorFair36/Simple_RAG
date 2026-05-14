@@ -1,0 +1,5 @@
+chromadb
+mlx_embeddings
+mlx_lm
+numpy
+rich

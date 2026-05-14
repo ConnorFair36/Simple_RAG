@@ -1,0 +1,11 @@
+# Wiki files
+*.bz2
+wiki-vectors
+
+# uv enviroment
+uv.lock
+pyproject.toml
+.venv
+
+# others
+.DS_Store
