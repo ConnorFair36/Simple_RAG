@@ -7,10 +7,13 @@ When working with a large language model to find information, the model is limit
 This project was designed to run on a mac with apple's M-series chips. other devices may not work well or at all
 1. Install the packages:
 `pip install chromadb mlx_embeddings mlx_lm`
-2. Download the most recent wiki dump and index file (use the multi-stream version)
+2. Download from [here](https://dumps.wikimedia.org/enwiki/latest/):
+  - `enwiki-latest-pages-articles-multistream-index.txt.bz2`
+  - `enwiki-latest-pages-articles-multistream.xml.bz2`
+  - `enwiki-latest-redirect.sql`
 3. Run the program:
 `python rag-qa.py`
-  - This will take a few hours to run the first time because it needs to vectorize all of the article titles for the system to work
+  - This will take a few hours to run the first time because it needs to vectorize all of the article titles and filter out the redirects for the system to work
 4. Once you are done asking questions, type "END" in all caps to end the conversation
 
 

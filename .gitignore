@@ -1,5 +1,6 @@
 # Wiki files
 *.bz2
+enwiki-latest-redirect.sql
 wiki-vectors
 
 # uv enviroment

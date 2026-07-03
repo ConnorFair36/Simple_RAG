@@ -8,6 +8,7 @@ import os
 import xml.sax
 import io
 import re
+import argparse
 
 # storing and accessing vector databases
 import chromadb
@@ -108,10 +109,40 @@ class SingleArticleExtractor(xml.sax.ContentHandler):
             self.text_aggregate.append(content)
 
 
-def vectorize_titles(collection, index_source):
+def parse_sys_args() -> tuple[int, int]:
+    """Returns the values for the system arguments given to this program."""
+    parser = argparse.ArgumentParser(description="This script runs the document vectorization and RAG system")
+
+    parser.add_argument("--n_titles", type=int, default=3, help="number of candidate titles for the LLM to generate")
+    parser.add_argument("--n_documents", type=int, default=3, help="number of documents the vector search returns")
+
+    args = parser.parse_args()
+    return (args.n_titles, args.n_documents)
+
+
+def find_redirects(redirects_source : str) -> set:
+    """Returns a set of all article id's that are redirects."""
+    redirect_pattern = re.compile(r"\((\d+),(\d+),\'(.*?)\',.*?\)")
+    id_set = set()
+
+    with open(redirects_source, 'r', encoding='utf-8', errors='ignore') as file:
+        for line in file:
+            # We only care about the lines containing the actual data rows
+            if line.startswith('INSERT INTO `redirect` VALUES '):
+                matches = redirect_pattern.findall(line)
+                for match in matches:
+                    rd_from = match[0]
+                    rd_title = match[2].replace(r"\'", "'").replace(r"\\", "\\")
+                    #print(f"Page ID {rd_from} redirects to {rd_title}")
+                    id_set.add(rd_from)
+    return id_set
+
+
+def vectorize_titles(collection, index_source, article_source, redirects_source):
     """Pulls all of the titles out of the index file and vectorizes each one."""
     batch_size = 5_000
     total_batches = 0
+    redirect_ids = find_redirects(redirects_source)
     
     # Resume from where we left off
     skip_lines = collection.count()
@@ -129,10 +160,13 @@ def vectorize_titles(collection, index_source):
                 continue  # skip already-processed lines
             
             data = line.decode("utf-8").split(":")
+
+            if data[1] in redirect_ids:
+                continue
             line_index = str(uuid.uuid4())
             batch["ids"].append(line_index)
             batch["documents"].append(data[2])
-            batch["metadatas"].append({"offset": data[0], "page_id": data[1]})
+            batch["metadatas"].append({"offset": data[0], "page_id": data[1], "title": data[2]})
 
             if len(batch["ids"]) >= batch_size:
                 collection.add(
@@ -157,7 +191,7 @@ def vectorize_titles(collection, index_source):
         index_filehandle.close()
 
 
-def get_article(metadatas, article_source):
+def get_article(metadatas: dict, article_source):
     """Gets an article out of the wikipedia dump based on the metadata."""
     offset = int(metadatas["offset"])
     target_id = int(metadatas["page_id"])
@@ -197,19 +231,6 @@ def get_relevent_docs(collection, article_source, llm_rag_query, n_documents):
     documents = []
     for metadata in metadatas:
         documents.append(get_article(metadata, article_source))
-    redirects = [doc["content"] for doc in documents if doc["redirect"]]
-    # find the articles for the redirects in the database if possible
-    if redirects:
-        query = collection.query(
-            query_texts=llm_rag_query,
-            n_results=len(redirects)
-        )
-        metadatas = query["metadatas"][0]
-        new_documents = []
-        for metadata in metadatas:
-            new_documents.append(get_article(metadata, article_source))
-        documents.extend(new_documents)
-    # remove as many redirects as possible
     documents = [filter_article(doc["content"]) for doc in documents if not doc["redirect"]]
 
     return documents[:n_documents]
@@ -277,6 +298,7 @@ if __name__ == "__main__":
     # 1. Download all of the articles from wikipedia in the dump
     index_source = "./enwiki-latest-pages-articles-multistream-index.txt.bz2"
     article_source = "./enwiki-latest-pages-articles-multistream.xml.bz2"
+    redirects_source = "./enwiki-latest-redirect.sql"
 
     # 2. Vectorize article names
     my_ef = MyEmbeddingFunction("mlx-community/all-MiniLM-L6-v2-4bit")
@@ -288,13 +310,13 @@ if __name__ == "__main__":
 
     if collection.count() == 0:
         print("Collection is empty")
-        vectorize_titles(collection, index_source)
+        vectorize_titles(collection, index_source, article_source, redirects_source)
     
     # 3. Run in an infinite loop where every time a user asks a question:
     #  1. The model takes the question and uses it to come up with titles to potentially useful wikipedia articles
     #  2. These titles are vectorized, then being used to search for the most similar wikipedia document titles
     #  3. The metadata associated with these titles is used to index and find the corresponding articles
     #  4. These articles and the user's question are fed back into the model to improve the response of the model
-    n_titles = 3
-    main(collection, article_source, n_titles, 3)
+    n_titles, n_documents = parse_sys_args()
+    main(collection, article_source, n_titles, n_documents)
 
