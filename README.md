@@ -27,3 +27,34 @@ This project was designed to run on a mac with apple's M-series chips. other dev
     3. The metadata associated with these titles is used to index and find the corresponding articles
     4. These articles and the user's question are fed back into the model and it answers the question
 
+## Flowchart
+
+```mermaid
+flowchart TD
+    subgraph S1["Stage 1: Build the index (first run only)"]
+        direction LR
+        A["Wikipedia dump<br/>titles + redirects"] --> B["Drop redirects,<br/>embed every title"]
+        B --> C[("ChromaDB<br/>title vectors + byte offsets")]
+    end
+
+    subgraph S2["Stage 2: Answer questions (loops until END)"]
+        direction TB
+        Q["User question"] --> T["LLM suggests likely<br/>article titles"]
+        T --> V["Vector search finds the<br/>closest real titles"]
+
+        subgraph DP["Document processing"]
+            direction TB
+            D1["Jump to the article's byte offset<br/>in the compressed dump"]
+            D2["Decompress just that block<br/>and extract the article"]
+            D3["Strip references<br/>to keep only useful text"]
+            D1 --> D2 --> D3
+        end
+
+        V --> D1
+        D3 --> L["LLM answers using the<br/>articles + original question"]
+        L --> R["Response"]
+    end
+
+    C -.->|"searched by"| V
+    S1 --> S2
+```
